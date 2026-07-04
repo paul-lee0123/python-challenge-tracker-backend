@@ -106,6 +106,9 @@ def execute_code():
                 output_buffer.write(f"{prompt}{value}\n")
                 return value
             raise EOFError("No more input available")
+
+        def safe_print(*args, **kwargs):
+            print(*args, file=output_buffer, **kwargs)
         
         # Compile with RestrictedPython
         try:
@@ -133,6 +136,7 @@ def execute_code():
                 '_getiter_': default_guarded_getiter,
                 '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
                 '_write_': lambda obj: obj,
+                'print': safe_print,
                 'input': mock_input,
             }
             
@@ -146,6 +150,13 @@ def execute_code():
             try:
                 exec(byte_code, safe_env)
                 execution_output = safe_env.get('printed', '')
+                if not execution_output:
+                    collector = safe_env.get('_print')
+                    if callable(collector):
+                        try:
+                            execution_output = collector()
+                        except Exception:
+                            execution_output = ''
                 # If stdin prompts were used, include them in output too.
                 if output_buffer.getvalue():
                     execution_output = output_buffer.getvalue() + execution_output
@@ -346,6 +357,9 @@ def execute_code_internal(code, test_input):
             input_counter[0] += 1
             return value
         raise EOFError("No more input")
+
+    def safe_print(*args, **kwargs):
+        print(*args, file=output_buffer, **kwargs)
     
     try:
         compiled = compile_restricted(code, '<test>', 'exec')
@@ -363,11 +377,19 @@ def execute_code_internal(code, test_input):
             '_getiter_': default_guarded_getiter,
             '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
             '_write_': lambda obj: obj,
+            'print': safe_print,
             'input': mock_input,
         }
         
         exec(byte_code, safe_env)
         execution_output = safe_env.get('printed', '')
+        if not execution_output:
+            collector = safe_env.get('_print')
+            if callable(collector):
+                try:
+                    execution_output = collector()
+                except Exception:
+                    execution_output = ''
         if output_buffer.getvalue():
             execution_output = output_buffer.getvalue() + execution_output
         return {'success': True, 'output': execution_output}
