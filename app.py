@@ -10,6 +10,7 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import sqlite3 as _sqlite3
 import math as py_math
 import random as py_random
 import statistics as py_statistics
@@ -97,6 +98,18 @@ SAFE_STATISTICS = SimpleNamespace(
     variance=py_statistics.variance,
     pvariance=py_statistics.pvariance,
 )
+
+# Safe sqlite3 — forces in-memory databases only
+class _SafeSqlite3:
+    """Wrapper that restricts sqlite3 to in-memory databases."""
+    @staticmethod
+    def connect(_db=':memory:'):
+        return _sqlite3.connect(':memory:')
+    Row = _sqlite3.Row
+    Error = _sqlite3.Error
+    OperationalError = _sqlite3.OperationalError
+
+SAFE_SQLITE3 = _SafeSqlite3()
 
 SAFE_DATETIME = SimpleNamespace(
     datetime=py_datetime,
@@ -300,6 +313,8 @@ def make_safe_import(turtle_module=None):
             return SAFE_STATISTICS
         if name == 'datetime':
             return SAFE_DATETIME
+        if name == 'sqlite3':
+            return SAFE_SQLITE3
         if name == 'turtle':
             if turtle_module is None:
                 raise ImportError("turtle is only available in runtime execution mode")
@@ -431,6 +446,7 @@ def execute_code():
                 'math': SAFE_MATH,
                 'statistics': SAFE_STATISTICS,
                 'datetime': SAFE_DATETIME,
+                'sqlite3': SAFE_SQLITE3,
                 'turtle': turtle_module,
                 'print': safe_print,
                 'input': mock_input,
