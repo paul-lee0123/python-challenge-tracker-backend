@@ -112,17 +112,20 @@ def execute_code():
         
         # Compile with RestrictedPython
         try:
-            byte_code = compile_restricted(
+            compiled = compile_restricted(
                 code,
                 filename='<student_code>',
                 mode='exec'
             )
-            
-            if byte_code.errors:
+
+            compile_errors = getattr(compiled, 'errors', None)
+            if compile_errors:
                 return jsonify({
                     'success': False,
-                    'error': 'Syntax Error:\n' + '\n'.join(byte_code.errors)
+                    'error': 'Syntax Error:\n' + '\n'.join(compile_errors)
                 })
+
+            byte_code = getattr(compiled, 'code', compiled)
             
             # Set up safe execution environment
             safe_env = {
@@ -144,7 +147,7 @@ def execute_code():
             
             # Set timeout (Windows doesn't support SIGALRM, so we skip this)
             try:
-                exec(byte_code.code, safe_env)
+                exec(byte_code, safe_env)
                 
                 return jsonify({
                     'success': True,
@@ -347,9 +350,12 @@ def execute_code_internal(code, test_input):
         print(*args, file=output_buffer, **kwargs)
     
     try:
-        byte_code = compile_restricted(code, '<test>', 'exec')
-        if byte_code.errors:
-            return {'success': False, 'error': '\n'.join(byte_code.errors)}
+        compiled = compile_restricted(code, '<test>', 'exec')
+        compile_errors = getattr(compiled, 'errors', None)
+        if compile_errors:
+            return {'success': False, 'error': '\n'.join(compile_errors)}
+
+        byte_code = getattr(compiled, 'code', compiled)
         
         safe_env = {
             '__builtins__': SAFE_BUILTINS,
@@ -357,7 +363,7 @@ def execute_code_internal(code, test_input):
             'input': mock_input,
         }
         
-        exec(byte_code.code, safe_env)
+        exec(byte_code, safe_env)
         return {'success': True, 'output': output_buffer.getvalue()}
         
     except Exception as e:
