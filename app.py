@@ -101,23 +101,217 @@ SAFE_DATETIME = SimpleNamespace(
     timedelta=py_timedelta,
 )
 
+def create_turtle_module():
+    """Create a lightweight turtle module that records lines for browser rendering."""
+    state = {
+        'lines': [],
+        'width': 640,
+        'height': 420,
+        'background': '#ffffff',
+        'used': False,
+    }
+
+    def _normalize_color(color):
+        if isinstance(color, tuple) and len(color) >= 3:
+            r, g, b = color[:3]
+            return f"rgb({int(r)}, {int(g)}, {int(b)})"
+        return str(color)
+
+    class FakeTurtle:
+        def __init__(self):
+            self.x = 0.0
+            self.y = 0.0
+            self.heading = 0.0
+            self.pen_down = True
+            self.pen_color = '#1f2937'
+            self.pen_size = 2
+
+        def _line_to(self, new_x, new_y):
+            state['used'] = True
+            if self.pen_down:
+                state['lines'].append({
+                    'x1': self.x,
+                    'y1': self.y,
+                    'x2': new_x,
+                    'y2': new_y,
+                    'color': self.pen_color,
+                    'size': self.pen_size,
+                })
+            self.x = float(new_x)
+            self.y = float(new_y)
+
+        def forward(self, distance):
+            radians = py_math.radians(self.heading)
+            nx = self.x + py_math.cos(radians) * float(distance)
+            ny = self.y + py_math.sin(radians) * float(distance)
+            self._line_to(nx, ny)
+
+        fd = forward
+
+        def backward(self, distance):
+            self.forward(-float(distance))
+
+        bk = backward
+
+        def right(self, angle):
+            state['used'] = True
+            self.heading -= float(angle)
+
+        rt = right
+
+        def left(self, angle):
+            state['used'] = True
+            self.heading += float(angle)
+
+        lt = left
+
+        def penup(self):
+            state['used'] = True
+            self.pen_down = False
+
+        pu = penup
+
+        def pendown(self):
+            state['used'] = True
+            self.pen_down = True
+
+        pd = pendown
+
+        def goto(self, x, y=None):
+            state['used'] = True
+            if y is None:
+                x, y = x
+            self._line_to(float(x), float(y))
+
+        setpos = goto
+
+        def setheading(self, angle):
+            state['used'] = True
+            self.heading = float(angle)
+
+        seth = setheading
+
+        def home(self):
+            state['used'] = True
+            self.goto(0.0, 0.0)
+            self.heading = 0.0
+
+        def color(self, *args):
+            state['used'] = True
+            if len(args) == 1:
+                self.pen_color = _normalize_color(args[0])
+            elif len(args) >= 3:
+                self.pen_color = _normalize_color((args[0], args[1], args[2]))
+
+        pencolor = color
+
+        def pensize(self, size):
+            state['used'] = True
+            self.pen_size = max(1, int(size))
+
+        width = pensize
+
+        def dot(self, size=4, color=None):
+            state['used'] = True
+            dot_color = _normalize_color(color) if color is not None else self.pen_color
+            r = max(1.0, float(size) / 2.0)
+            state['lines'].append({
+                'x1': self.x - r,
+                'y1': self.y,
+                'x2': self.x + r,
+                'y2': self.y,
+                'color': dot_color,
+                'size': int(max(2, r)),
+            })
+
+        def clear(self):
+            state['used'] = True
+            state['lines'].clear()
+
+        def hideturtle(self):
+            state['used'] = True
+
+        ht = hideturtle
+
+        def speed(self, _value):
+            state['used'] = True
+
+    class FakeScreen:
+        def setup(self, width=640, height=420):
+            state['used'] = True
+            state['width'] = int(width)
+            state['height'] = int(height)
+
+        def bgcolor(self, color):
+            state['used'] = True
+            state['background'] = _normalize_color(color)
+
+        def title(self, _value):
+            state['used'] = True
+
+        def tracer(self, *_args, **_kwargs):
+            state['used'] = True
+
+        def update(self):
+            state['used'] = True
+
+    default_turtle = FakeTurtle()
+    screen = FakeScreen()
+
+    module = SimpleNamespace(
+        Turtle=FakeTurtle,
+        Screen=lambda: screen,
+        done=lambda: None,
+        mainloop=lambda: None,
+        forward=default_turtle.forward,
+        backward=default_turtle.backward,
+        right=default_turtle.right,
+        left=default_turtle.left,
+        penup=default_turtle.penup,
+        pendown=default_turtle.pendown,
+        goto=default_turtle.goto,
+        setheading=default_turtle.setheading,
+        home=default_turtle.home,
+        color=default_turtle.color,
+        pencolor=default_turtle.pencolor,
+        pensize=default_turtle.pensize,
+        width=default_turtle.width,
+        dot=default_turtle.dot,
+        clear=default_turtle.clear,
+        hideturtle=default_turtle.hideturtle,
+        speed=default_turtle.speed,
+    )
+
+    return module, state
+
+def make_safe_import(turtle_module=None):
+    """Build a per-request import hook."""
+    def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == 'random':
+            return SAFE_RANDOM
+        if name == 'time':
+            return SAFE_TIME
+        if name == 'math':
+            return SAFE_MATH
+        if name == 'statistics':
+            return SAFE_STATISTICS
+        if name == 'datetime':
+            return SAFE_DATETIME
+        if name == 'turtle':
+            if turtle_module is None:
+                raise ImportError("turtle is only available in runtime execution mode")
+            return turtle_module
+        if name == 'tkinter':
+            raise ImportError(
+                "Import of 'tkinter' is not supported in the cloud IDE because GUI windows are not available on headless servers"
+            )
+        raise ImportError(f"Import of '{name}' is not allowed")
+
+    return _safe_import
+
 def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-    """Allow importing only selected safe modules."""
-    if name == 'random':
-        return SAFE_RANDOM
-    if name == 'time':
-        return SAFE_TIME
-    if name == 'math':
-        return SAFE_MATH
-    if name == 'statistics':
-        return SAFE_STATISTICS
-    if name == 'datetime':
-        return SAFE_DATETIME
-    if name in ('tkinter', 'turtle'):
-        raise ImportError(
-            f"Import of '{name}' is not supported in the cloud IDE because GUI windows are not available on headless servers"
-        )
-    raise ImportError(f"Import of '{name}' is not allowed")
+    """Default safe import without turtle runtime context."""
+    return make_safe_import()(name, globals, locals, fromlist, level)
 
 # Restricted Python safe environment
 SAFE_BUILTINS = {
@@ -182,6 +376,7 @@ def execute_code():
         # Capture stdout
         output_buffer = io.StringIO()
         error_buffer = io.StringIO()
+        turtle_module, turtle_state = create_turtle_module()
         
         # Mock input function with provided test inputs
         input_lines = test_input.split('\n') if test_input else []
@@ -216,8 +411,12 @@ def execute_code():
             byte_code = getattr(compiled, 'code', compiled)
             
             # Set up safe execution environment
+            safe_builtins = {
+                **SAFE_BUILTINS,
+                '__import__': make_safe_import(turtle_module),
+            }
             safe_env = {
-                '__builtins__': SAFE_BUILTINS,
+                '__builtins__': safe_builtins,
                 '_print_': PrintCollector,
                 '_getattr_': getattr,
                 '_getitem_': lambda obj, key: obj[key],
@@ -229,6 +428,7 @@ def execute_code():
                 'math': SAFE_MATH,
                 'statistics': SAFE_STATISTICS,
                 'datetime': SAFE_DATETIME,
+                'turtle': turtle_module,
                 'print': safe_print,
                 'input': mock_input,
             }
@@ -257,7 +457,14 @@ def execute_code():
                 return jsonify({
                     'success': True,
                     'output': execution_output,
-                    'error': None
+                    'error': None,
+                    'turtle': {
+                        'used': turtle_state['used'],
+                        'width': turtle_state['width'],
+                        'height': turtle_state['height'],
+                        'background': turtle_state['background'],
+                        'lines': turtle_state['lines'],
+                    }
                 })
                 
             except TimeoutError as e:
@@ -441,6 +648,7 @@ def test_challenge():
 def execute_code_internal(code, test_input):
     """Internal helper for code execution"""
     output_buffer = io.StringIO()
+    turtle_module, _turtle_state = create_turtle_module()
     input_lines = test_input.split('\n') if test_input else []
     input_counter = [0]
     
@@ -462,8 +670,12 @@ def execute_code_internal(code, test_input):
 
         byte_code = getattr(compiled, 'code', compiled)
         
+        safe_builtins = {
+            **SAFE_BUILTINS,
+            '__import__': make_safe_import(turtle_module),
+        }
         safe_env = {
-            '__builtins__': SAFE_BUILTINS,
+            '__builtins__': safe_builtins,
             '_print_': PrintCollector,
             '_getattr_': getattr,
             '_getitem_': lambda obj, key: obj[key],
@@ -475,6 +687,7 @@ def execute_code_internal(code, test_input):
             'math': SAFE_MATH,
             'statistics': SAFE_STATISTICS,
             'datetime': SAFE_DATETIME,
+            'turtle': turtle_module,
             'print': safe_print,
             'input': mock_input,
         }
