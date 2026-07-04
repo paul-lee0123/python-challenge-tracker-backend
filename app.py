@@ -10,6 +10,7 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from RestrictedPython import compile_restricted, safe_globals, limited_builtins
+from RestrictedPython.PrintCollector import PrintCollector
 from RestrictedPython.Eval import default_guarded_getiter
 from RestrictedPython.Guards import guarded_iter_unpack_sequence
 import pylint.lint
@@ -106,10 +107,6 @@ def execute_code():
                 return value
             raise EOFError("No more input available")
         
-        # Custom print that captures output
-        def safe_print(*args, **kwargs):
-            print(*args, file=output_buffer, **kwargs)
-        
         # Compile with RestrictedPython
         try:
             compiled = compile_restricted(
@@ -130,12 +127,12 @@ def execute_code():
             # Set up safe execution environment
             safe_env = {
                 '__builtins__': SAFE_BUILTINS,
-                '_print_': safe_print,
+                '_print_': PrintCollector,
                 '_getattr_': getattr,
                 '_getitem_': lambda obj, key: obj[key],
                 '_getiter_': default_guarded_getiter,
                 '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
-                'print': safe_print,
+                '_write_': lambda obj: obj,
                 'input': mock_input,
             }
             
@@ -148,10 +145,14 @@ def execute_code():
             # Set timeout (Windows doesn't support SIGALRM, so we skip this)
             try:
                 exec(byte_code, safe_env)
+                execution_output = safe_env.get('printed', '')
+                # If stdin prompts were used, include them in output too.
+                if output_buffer.getvalue():
+                    execution_output = output_buffer.getvalue() + execution_output
                 
                 return jsonify({
                     'success': True,
-                    'output': output_buffer.getvalue(),
+                    'output': execution_output,
                     'error': None
                 })
                 
@@ -346,9 +347,6 @@ def execute_code_internal(code, test_input):
             return value
         raise EOFError("No more input")
     
-    def safe_print(*args, **kwargs):
-        print(*args, file=output_buffer, **kwargs)
-    
     try:
         compiled = compile_restricted(code, '<test>', 'exec')
         compile_errors = getattr(compiled, 'errors', None)
@@ -359,12 +357,20 @@ def execute_code_internal(code, test_input):
         
         safe_env = {
             '__builtins__': SAFE_BUILTINS,
-            'print': safe_print,
+            '_print_': PrintCollector,
+            '_getattr_': getattr,
+            '_getitem_': lambda obj, key: obj[key],
+            '_getiter_': default_guarded_getiter,
+            '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
+            '_write_': lambda obj: obj,
             'input': mock_input,
         }
         
         exec(byte_code, safe_env)
-        return {'success': True, 'output': output_buffer.getvalue()}
+        execution_output = safe_env.get('printed', '')
+        if output_buffer.getvalue():
+            execution_output = output_buffer.getvalue() + execution_output
+        return {'success': True, 'output': execution_output}
         
     except Exception as e:
         return {'success': False, 'error': traceback.format_exc()}
