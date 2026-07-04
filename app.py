@@ -22,9 +22,19 @@ app = Flask(__name__)
 # CORS configuration for production
 CORS(app, origins=[
     "https://python-challenge-tracker.web.app",
+    "https://python-challenge-tracker.firebaseapp.com",
     "http://localhost:5173",
     "http://localhost:3000"
 ])
+
+@app.route('/', methods=['GET'])
+def root_status():
+    """Root endpoint for platform health checks"""
+    return jsonify({
+        'status': 'ok',
+        'service': 'python-challenge-tracker-backend',
+        'message': 'Backend is running'
+    })
 
 # Restricted Python safe environment
 SAFE_BUILTINS = {
@@ -56,12 +66,18 @@ def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'ok'})
 
-@app.route('/execute', methods=['POST'])
+@app.route('/execute', methods=['GET', 'POST'])
 def execute_code():
     """
     Execute Python code in a restricted environment
     Returns: {success, output, error, execution_time}
     """
+    if request.method == 'GET':
+        return jsonify({
+            'status': 'ok',
+            'message': 'Use POST /execute with JSON body: {"code": "print(123)"}'
+        })
+
     try:
         data = request.json
         code = data.get('code', '')
