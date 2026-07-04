@@ -7,6 +7,9 @@ import sys
 import traceback
 import contextlib
 import os
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 import math as py_math
 import random as py_random
 import statistics as py_statistics
@@ -707,6 +710,123 @@ def execute_code_internal(code, test_input):
         
     except Exception as e:
         return {'success': False, 'error': traceback.format_exc()}
+
+# ==================== EMAIL NOTIFICATIONS ====================
+
+SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_PASS = os.environ.get('SMTP_PASS', '')
+APP_URL = 'https://python-challenge-tracker.web.app'
+
+
+def build_award_email(student_name, challenge_title, points_awarded, bonus_points, bonus_reason, feedback, teacher_name='Your Teacher'):
+    """Build a styled HTML email matching the app dark theme."""
+    mascot = 'mascot-happy.png' if (points_awarded or 0) > 0 else 'mascot-neutral.png'
+
+    pts_html = ''
+    if points_awarded:
+        pts_html += f'<div class="pts-badge">&#127942; +{points_awarded} point{"s" if points_awarded != 1 else ""} awarded!</div>'
+    if bonus_points:
+        reason = f' &mdash; {bonus_reason}' if bonus_reason else ''
+        pts_html += f'<div class="bonus-badge">&#11088; +{bonus_points} bonus point{"s" if bonus_points != 1 else ""} for exceptional work{reason}</div>'
+
+    fb_html = ''
+    if feedback:
+        fb_html = f'<div class="fb-box"><div class="fb-label">Teacher&#39;s comment</div><div class="fb-text">{feedback}</div></div>'
+
+    return f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Python Challenge Hub</title>
+<style>
+  body{{margin:0;padding:0;background:#0b1020;font-family:'Segoe UI',Helvetica,Arial,sans-serif;}}
+  .wrap{{max-width:560px;margin:0 auto;padding:32px 16px;}}
+  .logo-area{{text-align:center;padding:28px 0 18px;}}
+  .logo-area img{{width:88px;height:88px;object-fit:contain;}}
+  .app-name{{color:#c4b5fd;font-size:17px;font-weight:800;margin:8px 0 0;}}
+  .card{{background:linear-gradient(180deg,#18233d,#131c31);border-radius:24px;padding:36px 32px;border:1px solid rgba(124,58,237,0.35);box-shadow:0 24px 64px rgba(0,0,0,0.55);}}
+  .mascot{{display:block;margin:0 auto 20px;width:100px;height:100px;object-fit:contain;}}
+  h1{{color:#c4b5fd;font-size:26px;text-align:center;margin:0 0 6px;font-weight:800;}}
+  .hi{{color:#94a3b8;text-align:center;font-size:15px;margin:0 0 24px;}}
+  .challenge-box{{background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.3);border-radius:12px;padding:12px 18px;color:#e2e8f0;font-weight:700;text-align:center;margin-bottom:22px;font-size:14px;}}
+  .pts-badge{{display:block;background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;font-size:20px;font-weight:800;padding:13px 24px;border-radius:999px;margin:0 auto 10px;text-align:center;max-width:280px;}}
+  .bonus-badge{{display:block;background:linear-gradient(135deg,#065f46,#047857);color:#6ee7b7;font-size:13px;font-weight:700;padding:9px 18px;border-radius:999px;text-align:center;max-width:320px;margin:0 auto 10px;}}
+  .fb-box{{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:18px 20px;margin:22px 0;}}
+  .fb-label{{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:8px;}}
+  .fb-text{{color:#e2e8f0;font-size:14px;line-height:1.65;}}
+  .cta{{display:block;margin:26px auto 0;background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;text-decoration:none;font-weight:800;font-size:14px;padding:14px 30px;border-radius:999px;text-align:center;max-width:220px;}}
+  .footer{{text-align:center;color:#475569;font-size:11px;margin-top:24px;line-height:1.6;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo-area">
+    <img src="{APP_URL}/logo.png" alt="Python Challenge Hub">
+    <p class="app-name">Python Challenge Hub</p>
+  </div>
+  <div class="card">
+    <img class="mascot" src="{APP_URL}/{mascot}" alt="Mascot">
+    <h1>Great work, {student_name}! &#127881;</h1>
+    <p class="hi">{teacher_name} has reviewed your submission.</p>
+    <div class="challenge-box">&#128221; {challenge_title}</div>
+    {pts_html}
+    {fb_html}
+    <a class="cta" href="{APP_URL}">View in Python Challenge Hub</a>
+  </div>
+  <p class="footer">Python Challenge Hub &middot; Guided lessons &amp; teacher challenges<br>
+  You received this because your teacher reviewed your work.</p>
+</div>
+</body>
+</html>'''
+
+
+@app.route('/notify', methods=['POST'])
+def send_notification():
+    """Send a styled award email to a student when their work is reviewed."""
+    data = request.json or {}
+    to_email = data.get('to', '')
+    student_name = data.get('studentName', 'Student')
+    challenge_title = data.get('challengeTitle', 'your challenge')
+    points_awarded = int(data.get('pointsAwarded', 0))
+    bonus_points = int(data.get('bonusPoints', 0))
+    bonus_reason = data.get('bonusReason', '')
+    feedback = data.get('feedback', '')
+    teacher_name = data.get('teacherName', 'Your Teacher')
+    teacher_email = data.get('teacherEmail', '')
+
+    if not to_email:
+        return jsonify({'error': 'Missing recipient email'}), 400
+
+    if not SMTP_USER or not SMTP_PASS:
+        print(f'[notify] Email not configured. Would email {to_email} re +{points_awarded + bonus_points}pts')
+        return jsonify({'skipped': 'Email not configured on server'}), 200
+
+    try:
+        total = points_awarded + bonus_points
+        subject = f'\U0001f3c6 +{total} point{"s" if total != 1 else ""} awarded \u2014 {challenge_title}'
+        html_body = build_award_email(student_name, challenge_title, points_awarded, bonus_points, bonus_reason, feedback, teacher_name)
+
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = f'Python Challenge Hub <{SMTP_USER}>'
+        msg['To'] = to_email
+        if teacher_email:
+            msg['Reply-To'] = f'{teacher_name} <{teacher_email}>'
+        msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, [to_email], msg.as_string())
+
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f'[notify] Email error: {e}')
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     # Get port from environment variable (Render provides this)
