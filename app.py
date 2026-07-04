@@ -7,6 +7,12 @@ import sys
 import traceback
 import contextlib
 import os
+import math as py_math
+import random as py_random
+import statistics as py_statistics
+import time as py_time
+from datetime import date as py_date, datetime as py_datetime, timedelta as py_timedelta
+from types import SimpleNamespace
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from RestrictedPython import compile_restricted, safe_globals, limited_builtins
@@ -37,6 +43,82 @@ def root_status():
         'message': 'Backend is running'
     })
 
+# Safe module shims for student code
+SAFE_RANDOM = SimpleNamespace(
+    random=py_random.random,
+    randint=py_random.randint,
+    randrange=py_random.randrange,
+    choice=py_random.choice,
+    shuffle=py_random.shuffle,
+    uniform=py_random.uniform,
+    seed=py_random.seed,
+)
+
+SAFE_TIME = SimpleNamespace(
+    time=py_time.time,
+    perf_counter=py_time.perf_counter,
+    monotonic=py_time.monotonic,
+)
+
+SAFE_MATH = SimpleNamespace(
+    pi=py_math.pi,
+    e=py_math.e,
+    tau=py_math.tau,
+    sqrt=py_math.sqrt,
+    pow=py_math.pow,
+    floor=py_math.floor,
+    ceil=py_math.ceil,
+    trunc=py_math.trunc,
+    factorial=py_math.factorial,
+    gcd=py_math.gcd,
+    sin=py_math.sin,
+    cos=py_math.cos,
+    tan=py_math.tan,
+    asin=py_math.asin,
+    acos=py_math.acos,
+    atan=py_math.atan,
+    radians=py_math.radians,
+    degrees=py_math.degrees,
+    log=py_math.log,
+    log10=py_math.log10,
+    exp=py_math.exp,
+)
+
+SAFE_STATISTICS = SimpleNamespace(
+    mean=py_statistics.mean,
+    median=py_statistics.median,
+    mode=py_statistics.mode,
+    multimode=py_statistics.multimode,
+    pstdev=py_statistics.pstdev,
+    stdev=py_statistics.stdev,
+    variance=py_statistics.variance,
+    pvariance=py_statistics.pvariance,
+)
+
+SAFE_DATETIME = SimpleNamespace(
+    datetime=py_datetime,
+    date=py_date,
+    timedelta=py_timedelta,
+)
+
+def safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    """Allow importing only selected safe modules."""
+    if name == 'random':
+        return SAFE_RANDOM
+    if name == 'time':
+        return SAFE_TIME
+    if name == 'math':
+        return SAFE_MATH
+    if name == 'statistics':
+        return SAFE_STATISTICS
+    if name == 'datetime':
+        return SAFE_DATETIME
+    if name in ('tkinter', 'turtle'):
+        raise ImportError(
+            f"Import of '{name}' is not supported in the cloud IDE because GUI windows are not available on headless servers"
+        )
+    raise ImportError(f"Import of '{name}' is not allowed")
+
 # Restricted Python safe environment
 SAFE_BUILTINS = {
     **limited_builtins,
@@ -60,6 +142,12 @@ SAFE_BUILTINS = {
     'sorted': sorted,
     'enumerate': enumerate,
     'zip': zip,
+    'any': any,
+    'all': all,
+    'map': map,
+    'filter': filter,
+    'reversed': reversed,
+    '__import__': safe_import,
 }
 
 @app.route('/health', methods=['GET'])
@@ -136,6 +224,11 @@ def execute_code():
                 '_getiter_': default_guarded_getiter,
                 '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
                 '_write_': lambda obj: obj,
+                'random': SAFE_RANDOM,
+                'time': SAFE_TIME,
+                'math': SAFE_MATH,
+                'statistics': SAFE_STATISTICS,
+                'datetime': SAFE_DATETIME,
                 'print': safe_print,
                 'input': mock_input,
             }
@@ -377,6 +470,11 @@ def execute_code_internal(code, test_input):
             '_getiter_': default_guarded_getiter,
             '_iter_unpack_sequence_': guarded_iter_unpack_sequence,
             '_write_': lambda obj: obj,
+            'random': SAFE_RANDOM,
+            'time': SAFE_TIME,
+            'math': SAFE_MATH,
+            'statistics': SAFE_STATISTICS,
+            'datetime': SAFE_DATETIME,
             'print': safe_print,
             'input': mock_input,
         }
